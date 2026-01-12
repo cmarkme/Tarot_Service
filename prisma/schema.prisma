@@ -1,0 +1,113 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+
+model User {
+  id        String    @id @default(cuid())
+  email     String?   @unique
+  createdAt DateTime  @default(now())
+
+  readings  Reading[]
+}
+
+model Reading {
+  id        String       @id @default(cuid())
+  createdAt DateTime     @default(now())
+
+  // guest readings allowed: userId nullable
+  userId    String?
+  user      User?        @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  // e.g. "daily", "three_card"
+  type      String
+
+  cards     ReadingCard[]
+
+  @@index([userId])
+  @@index([createdAt])
+}
+
+model ReadingCard {
+  id         String   @id @default(cuid())
+  readingId  String
+  reading    Reading  @relation(fields: [readingId], references: [id], onDelete: Cascade)
+
+  // stable identifier like "the_fool", "the_magician"
+  cardKey    String
+
+  // 1..N (order drawn)
+  position   Int
+
+  // reversed card?
+  isReversed Boolean  @default(false)
+
+  @@unique([readingId, position])
+  @@index([readingId])
+}
+model TarotCard {
+  id          String   @id @default(cuid())
+  slug        String   @unique            // "the-fool"
+  name        String
+  arcana      Arcana
+  suit        Suit?                     // null for Major Arcana
+  number      Int?                      // 0..21 for Major; 1..14 for Minor
+  keywords    String[]                  // Postgres supports arrays
+  upright     String                    // short meaning
+  reversed    String                    // short meaning
+  imageUrl    String?                   // optional for later
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model TarotReading {
+  id        String   @id @default(cuid())
+  mode      ReadingMode
+  spread    SpreadType
+  seedKey   String?               // e.g. "daily:2026-01-07:anon" or "random"
+  cards     Json                         // store draw result + orientations + positions
+  summary   String                       // basic output text
+
+  createdAt DateTime @default(now())
+}
+
+model TarotDraw {
+  id        String     @id @default(cuid())
+  userId    String?
+  spread    SpreadType
+  seedKey   String?    // e.g. "daily:2026-01-07:anon" or "random"
+  createdAt DateTime   @default(now())
+
+  @@index([seedKey])
+  // optionally also:
+  // @@index([userId, createdAt])
+}
+
+
+enum Arcana {
+  MAJOR
+  MINOR
+}
+
+enum Suit {
+  WANDS
+  CUPS
+  SWORDS
+  PENTACLES
+}
+
+enum ReadingMode {
+  RANDOM
+  DAILY
+}
+
+enum SpreadType {
+  SINGLE
+  THREE_CARD
+}
+
