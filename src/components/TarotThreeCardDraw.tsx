@@ -2,107 +2,28 @@
 
 import { useMemo, useState } from "react";
 import Image from "next/image";
+import { ALL_CARDS, type TarotCard } from "@/data/tarotCards";
+import { TAROT_MEANINGS } from "@/data/tarotMeanings";
+import { animated, to as springTo, useSpring, useSprings } from "@react-spring/web";
 
-type Card = {
-  id: string;
-  name: string;
-  src: string;
-};
+const deckX = 50;        // origin at center
+const deckY = -100;      // slightly up looks nicer
+const dealY = 0;        // final Y (relative to deck origin)
+const dealX = [-30, 5, 50];  // past, present, future
+const dealRot = [-8, -2, 5];
 
-// Keep your big ALL_CARDS list exactly as you already have it.
-// (I’m keeping just a few here as an example — paste your full list back in.)
-const ALL_CARDS: Card[] = [
-  // ───────────── Major Arcana ─────────────
-  { id: "00", name: "The Fool", src: "/tarot/00-TheFool.png" },
-  { id: "01", name: "The Magician", src: "/tarot/01-TheMagician.png" },
-  { id: "02", name: "The High Priestess", src: "/tarot/02-TheHighPriestess.png" },
-  { id: "03", name: "The Empress", src: "/tarot/03-TheEmpress.png" },
-  { id: "04", name: "The Emperor", src: "/tarot/04-TheEmperor.png" },
-  { id: "05", name: "The Hierophant", src: "/tarot/05-TheHierophant.png" },
-  { id: "06", name: "The Lovers", src: "/tarot/06-TheLovers.png" },
-  { id: "07", name: "The Chariot", src: "/tarot/07-TheChariot.png" },
-  { id: "08", name: "Strength", src: "/tarot/08-Strength.png" },
-  { id: "09", name: "The Hermit", src: "/tarot/09-TheHermit.png" },
-  { id: "10", name: "Wheel of Fortune", src: "/tarot/10-WheelOfFortune.png" },
-  { id: "11", name: "Justice", src: "/tarot/11-Justice.png" },
-  { id: "12", name: "The Hanged Man", src: "/tarot/12-TheHangedMan.png" },
-  { id: "13", name: "Death", src: "/tarot/13-Death.png" },
-  { id: "14", name: "Temperance", src: "/tarot/14-Temperance.png" },
-  { id: "15", name: "The Devil", src: "/tarot/15-TheDevil.png" },
-  { id: "16", name: "The Tower", src: "/tarot/16-TheTower.png" },
-  { id: "17", name: "The Star", src: "/tarot/17-TheStar.png" },
-  { id: "18", name: "The Moon", src: "/tarot/18-TheMoon.png" },
-  { id: "19", name: "The Sun", src: "/tarot/19-TheSun.png" },
-  { id: "20", name: "Judgement", src: "/tarot/20-Judgement.png" },
-  { id: "21", name: "The World", src: "/tarot/21-TheWorld.png" },
 
-  // ───────────── Cups ─────────────
-  { id: "Cups01", name: "Ace of Cups", src: "/tarot/Cups01.png" },
-  { id: "Cups02", name: "Two of Cups", src: "/tarot/Cups02.png" },
-  { id: "Cups03", name: "Three of Cups", src: "/tarot/Cups03.png" },
-  { id: "Cups04", name: "Four of Cups", src: "/tarot/Cups04.png" },
-  { id: "Cups05", name: "Five of Cups", src: "/tarot/Cups05.png" },
-  { id: "Cups06", name: "Six of Cups", src: "/tarot/Cups06.png" },
-  { id: "Cups07", name: "Seven of Cups", src: "/tarot/Cups07.png" },
-  { id: "Cups08", name: "Eight of Cups", src: "/tarot/Cups08.png" },
-  { id: "Cups09", name: "Nine of Cups", src: "/tarot/Cups09.png" },
-  { id: "Cups10", name: "Ten of Cups", src: "/tarot/Cups10.png" },
-  { id: "Cups11", name: "Page of Cups", src: "/tarot/Cups11.png" },
-  { id: "Cups12", name: "Knight of Cups", src: "/tarot/Cups12.png" },
-  { id: "Cups13", name: "Queen of Cups", src: "/tarot/Cups13.png" },
-  { id: "Cups14", name: "King of Cups", src: "/tarot/Cups14.png" },
 
-  // ───────────── Pentacles ─────────────
-  { id: "Pentacles01", name: "Ace of Pentacles", src: "/tarot/Pentacles01.png" },
-  { id: "Pentacles02", name: "Two of Pentacles", src: "/tarot/Pentacles02.png" },
-  { id: "Pentacles03", name: "Three of Pentacles", src: "/tarot/Pentacles03.png" },
-  { id: "Pentacles04", name: "Four of Pentacles", src: "/tarot/Pentacles04.png" },
-  { id: "Pentacles05", name: "Five of Pentacles", src: "/tarot/Pentacles05.png" },
-  { id: "Pentacles06", name: "Six of Pentacles", src: "/tarot/Pentacles06.png" },
-  { id: "Pentacles07", name: "Seven of Pentacles", src: "/tarot/Pentacles07.png" },
-  { id: "Pentacles08", name: "Eight of Pentacles", src: "/tarot/Pentacles08.png" },
-  { id: "Pentacles09", name: "Nine of Pentacles", src: "/tarot/Pentacles09.png" },
-  { id: "Pentacles10", name: "Ten of Pentacles", src: "/tarot/Pentacles10.png" },
-  { id: "Pentacles11", name: "Page of Pentacles", src: "/tarot/Pentacles11.png" },
-  { id: "Pentacles12", name: "Knight of Pentacles", src: "/tarot/Pentacles12.png" },
-  { id: "Pentacles13", name: "Queen of Pentacles", src: "/tarot/Pentacles13.png" },
-  { id: "Pentacles14", name: "King of Pentacles", src: "/tarot/Pentacles14.png" },
+type Phase = "idle" | "revealing";
 
-  // ───────────── Swords ─────────────
-  { id: "Swords01", name: "Ace of Swords", src: "/tarot/Swords01.png" },
-  { id: "Swords02", name: "Two of Swords", src: "/tarot/Swords02.png" },
-  { id: "Swords03", name: "Three of Swords", src: "/tarot/Swords03.png" },
-  { id: "Swords04", name: "Four of Swords", src: "/tarot/Swords04.png" },
-  { id: "Swords05", name: "Five of Swords", src: "/tarot/Swords05.png" },
-  { id: "Swords06", name: "Six of Swords", src: "/tarot/Swords06.png" },
-  { id: "Swords07", name: "Seven of Swords", src: "/tarot/Swords07.png" },
-  { id: "Swords08", name: "Eight of Swords", src: "/tarot/Swords08.png" },
-  { id: "Swords09", name: "Nine of Swords", src: "/tarot/Swords09.png" },
-  { id: "Swords10", name: "Ten of Swords", src: "/tarot/Swords10.png" },
-  { id: "Swords11", name: "Page of Swords", src: "/tarot/Swords11.png" },
-  { id: "Swords12", name: "Knight of Swords", src: "/tarot/Swords12.png" },
-  { id: "Swords13", name: "Queen of Swords", src: "/tarot/Swords13.png" },
-  { id: "Swords14", name: "King of Swords", src: "/tarot/Swords14.png" },
-
-  // ───────────── Wands ─────────────
-  { id: "Wands01", name: "Ace of Wands", src: "/tarot/Wands01.png" },
-  { id: "Wands02", name: "Two of Wands", src: "/tarot/Wands02.png" },
-  { id: "Wands03", name: "Three of Wands", src: "/tarot/Wands03.png" },
-  { id: "Wands04", name: "Four of Wands", src: "/tarot/Wands04.png" },
-  { id: "Wands05", name: "Five of Wands", src: "/tarot/Wands05.png" },
-  { id: "Wands06", name: "Six of Wands", src: "/tarot/Wands06.png" },
-  { id: "Wands07", name: "Seven of Wands", src: "/tarot/Wands07.png" },
-  { id: "Wands08", name: "Eight of Wands", src: "/tarot/Wands08.png" },
-  { id: "Wands09", name: "Nine of Wands", src: "/tarot/Wands09.png" },
-  { id: "Wands10", name: "Ten of Wands", src: "/tarot/Wands10.png" },
-  { id: "Wands11", name: "Page of Wands", src: "/tarot/Wands11.png" },
-  { id: "Wands12", name: "Knight of Wands", src: "/tarot/Wands12.png" },
-  { id: "Wands13", name: "Queen of Wands", src: "/tarot/Wands13.png" },
-  { id: "Wands14", name: "King of Wands", src: "/tarot/Wands14.png" },
+type SlotKey = "past" | "present" | "future";
+const SLOT_LABELS: { label: string; key: SlotKey }[] = [
+  { label: "Past", key: "past" },
+  { label: "Present", key: "present" },
+  { label: "Future", key: "future" },
 ];
 
-
-function pick3Unique(cards: Card[]) {
+function pick3Unique(cards: TarotCard[]) {
   const copy = [...cards];
   for (let i = copy.length - 1; i > 0; i--) {
     const j = Math.floor(Math.random() * (i + 1));
@@ -111,26 +32,108 @@ function pick3Unique(cards: Card[]) {
   return copy.slice(0, 3);
 }
 
+
 export default function TarotThreeCardDraw() {
-  const [drawn, setDrawn] = useState<Card[]>(() => pick3Unique(ALL_CARDS));
+  const [phase, setPhase] = useState<Phase>("idle");
+  const [drawn, setDrawn] = useState<TarotCard[]>(() => pick3Unique(ALL_CARDS));
   const [revealed, setRevealed] = useState<[boolean, boolean, boolean]>([false, false, false]);
 
-  const backSrc = "/tarot/back.png"; // change to "/tarot/back.png" if that’s where you stored it
+  const [deckSpring, deckApi] = useSpring(() => ({
+  from: { rot: 0, scale: 1 },
+  config: { tension: 260, friction: 18 },
+}));
 
-  const onShuffle = () => {
-    setDrawn(pick3Unique(ALL_CARDS));
-    setRevealed([false, false, false]);
-  };
+const [cardSprings, cardApi] = useSprings(3, (i) => ({
+  // ✅ rest state = in spread position (so clicking doesn't move them)
+  x: dealX[i],
+  y: dealY,
+  rot: dealRot[i],
+  scale: 1,
+  opacity: 1,
+  config: { tension: 5000, friction: 402 },
+}));
+
+
+  // Monetisation placeholder for now (later: from auth/stripe)
+  const isSubscribed = false;
+  const [showDeep, setShowDeep] = useState(false);
+
+  const backSrc = "/tarot/back.png";
+
+  const cards = useMemo(() => drawn.slice(0, 3), [drawn]);
+  const allRevealed = revealed.every(Boolean);
+
+  const onShuffle = async () => {
+  setDrawn(pick3Unique(ALL_CARDS));
+  setRevealed([false, false, false]);
+  setShowDeep(false);
+  setPhase("idle");
+
+  // Reset card positions to deck origin
+  cardApi.start(() => ({
+  x: deckX,
+  y: 220,
+  rot: 0,
+  scale: 0.98,
+  opacity: 0,
+  immediate: false,
+}));
+
+
+  // Deck shuffle wobble (feels like shuffling)
+  await deckApi.start({
+    to: async (next) => {
+      for (let k = 0; k < 10; k++) {
+        await next({
+          rot: (Math.random() - 0.5) * 10,
+          scale: 1 + Math.random() * 0.02,
+        });
+      }
+      await next({ rot: 0, scale: 1 });
+    },
+  });
+
+  // Deal cards one-by-one from deck to slots
+  await cardApi.start((i) => ({
+    to: async (next) => {
+      // bring card up out of deck
+      await next({
+        opacity: 1,
+        x: deckX,
+        y: deckY,
+        rot: (Math.random() - 0.5) * 8,
+        scale: 1,
+      });
+
+      // little “snap” forward
+      await next({
+        x: dealX[i],
+        y: dealY,
+        rot: dealRot[i],
+        scale: 1,
+        delay: i * 120, // stagger deal
+      });
+    },
+  }));
+};
+
 
   const revealIndex = (idx: 0 | 1 | 2) => {
     setRevealed((prev) => {
-      const next: [boolean, boolean, boolean] = [...prev] as any;
+      const next = [...prev] as [boolean, boolean, boolean];
       next[idx] = true;
       return next;
     });
   };
 
-  const cards = useMemo(() => drawn.slice(0, 3), [drawn]);
+  // Combined reading (optional): join combined blurbs if available
+  const combinedReading = useMemo(() => {
+    if (!allRevealed) return "";
+    const parts = cards
+      .map((c) => TAROT_MEANINGS[c.id]?.combined)
+      .filter((x): x is string => Boolean(x));
+    return parts.join(" ");
+  }, [allRevealed, cards]);
 
   return (
     <section className="panel">
@@ -138,53 +141,201 @@ export default function TarotThreeCardDraw() {
         <h1 className="title">Get Your Personal Free Love Tarot Reading</h1>
 
         <p className="desc">
-          Click the cards below to reveal a tarot card from the deck. Repeat until you draw all cards visible.
-          The meaning of the cards for your Free Love Tarot Reading will appear below each card. These cards in
-          your Free Love Tarot Reading will give you lessons and wisdom that can guide you into making the most
-          of your present circumstances.
+          Click each card to reveal it. Meanings appear below each card. Shuffle to draw again.
         </p>
 
         <div className="actions">
-          <button className="btn" onClick={onShuffle}>Shuffle</button>
+          <button className="btn" onClick={onShuffle}>
+            Shuffle
+          </button>
         </div>
+<div className="deckRow">
+  <animated.div
+    className="deck"
+    style={{
+      transform: springTo([deckSpring.rot, deckSpring.scale], (r, s) => `rotate(${r}deg) scale(${s})`),
+    }}
+  >
+    {/* simple stack of backs */}
+    <div className="deckStack">
+      <Image src={backSrc} alt="Deck" width={140} height={240} className="deckImg" />
+      <div className="deckShadow deckShadow2" />
+      <div className="deckShadow deckShadow3" />
+    </div>
+  </animated.div>
+</div>
 
         <div className="grid">
-          {cards.map((card, i) => {
-            const idx = i as 0 | 1 | 2;
-            const isRevealed = revealed[idx];
+  {cards.map((card, i) => {
+    const idx = i as 0 | 1 | 2;
+    const isRevealed = revealed[idx];
+    const slot = SLOT_LABELS[idx];
 
-            return (
-              <div key={card.id} className="col">
-                <div className="copyright">All Images ©Labyrinthos LLC</div>
+    const meaning = TAROT_MEANINGS[card.id];
+    const slotText = meaning?.[slot.key];
 
-                <button
-                  type="button"
-                  className="cardBtn"
-                  onClick={() => revealIndex(idx)}
-                  aria-label={isRevealed ? card.name : "Reveal card"}
-                >
-                  <div className="cardFrame">
-                    <Image
-                      src={isRevealed ? card.src : backSrc}
-                      alt={isRevealed ? card.name : "Tarot card back"}
-                      width={240}
-                      height={410}
-                      className="cardImg"
-                      priority={i === 0}
-                    />
-                  </div>
+    return (
+      <div key={card.id} className="col">
+        <div className="copyright">All Images ©Labyrinthos LLC</div>
+
+        {/* ✅ THIS is the animation wrapper */}
+        <animated.div
+          style={{
+            opacity: cardSprings[idx].opacity,
+            transform: springTo(
+              [cardSprings[idx].x, cardSprings[idx].y, cardSprings[idx].rot, cardSprings[idx].scale],
+              (x, y, r, s) => `translate3d(${x}px, ${y}px, 0) rotate(${r}deg) scale(${s})`
+            ),
+          }}
+        >
+          <button
+            type="button"
+            className="cardBtn"
+            onClick={() => revealIndex(idx)}
+            aria-label={isRevealed ? card.name : "Reveal card"}
+          >
+            <div className={`cardFrame ${isRevealed ? "revealed" : ""}`}>
+              <Image
+                src={isRevealed ? card.src : backSrc}
+                alt={isRevealed ? card.name : "Tarot card back"}
+                width={240}
+                height={410}
+                className="cardImg"
+                priority={i === 0}
+              />
+            </div>
+          </button>
+        </animated.div>
+
+        <div className="slotLabel">{slot.label}</div>
+
+        <div className="meaningTitle">{isRevealed ? card.name : ""}</div>
+
+        <div className="meaningText">
+          {isRevealed ? slotText ?? "Meaning not found yet for this card." : ""}
+        </div>
+      </div>
+    );
+  })}
+</div>
+
+        {allRevealed && (
+          <section className="combined">
+            <h2 className="combinedTitle">Your Daily Reading</h2>
+
+            <p className="combinedText">
+              {combinedReading || "Combined reading not available yet for these cards."}
+            </p>
+
+            {!showDeep && (
+              <div className="deepRow">
+                <button className="btnSecondary" onClick={() => setShowDeep(true)}>
+                  🔒 Reveal Deeper Meaning (Subscribers)
                 </button>
-
-                <div className="meaning">
-                  {isRevealed ? card.name : ""}
+                <div className="deepHint">
+                  Deeper meaning includes a fuller interpretation + advice and patterns across all three cards.
                 </div>
               </div>
-            );
-          })}
-        </div>
+            )}
+          </section>
+        )}
+
+        {allRevealed && showDeep && (
+          <section className="deep">
+            {isSubscribed ? (
+              <>
+                <h2 className="deepTitle">Deep Interpretation</h2>
+
+                <div className="deepCards">
+                  {cards.map((c, idx) => (
+                    <div key={c.id} className="deepCard">
+                      <div className="deepCardHead">
+                        <span className="deepSlot">{SLOT_LABELS[idx].label}</span>
+                        <span className="deepName">{c.name}</span>
+                      </div>
+
+                      <p className="deepText">{TAROT_MEANINGS[c.id]?.deep ?? "Deep meaning not added yet."}</p>
+                    </div>
+                  ))}
+                </div>
+
+                <button className="btnSecondary" onClick={() => setShowDeep(false)}>
+                  Hide Deep Reading
+                </button>
+              </>
+            ) : (
+              <>
+                <h2 className="deepTitle">Deeper Meaning is for Subscribers</h2>
+                <p className="deepText">
+                  You’ve unlocked the free reading. Subscribe to reveal deeper interpretation, patterns across the spread,
+                  and guided advice for your next step.
+                </p>
+
+                <div className="paywallBox">
+                  <div className="paywallBullets">
+                    <div>✅ Full interpretation for each card</div>
+                    <div>✅ Spread pattern analysis (themes + advice)</div>
+                    <div>✅ Better “overall” daily reading</div>
+                  </div>
+
+                  <button
+                    className="btnPay"
+                    onClick={() => alert("Next step: wire this button to your /subscribe page (Stripe).")}
+                  >
+                    Subscribe to Unlock
+                  </button>
+
+                  <button className="btnSecondary" onClick={() => setShowDeep(false)}>
+                    Not now
+                  </button>
+                </div>
+              </>
+            )}
+          </section>
+        )}
       </div>
 
       <style>{`
+        .deckRow {
+  display: grid;
+  place-items: center;
+  margin: 0 0 26px;
+}
+
+.deck {
+  width: 160px;
+  height: 260px;
+  position: relative;
+}
+
+.deckStack {
+  position: relative;
+  width: 140px;
+  height: 240px;
+  margin: 0 auto;
+}
+
+.deckImg {
+  width: 140px;
+  height: 240px;
+  object-fit: cover;
+  border-radius: 14px;
+  box-shadow: 0 18px 50px rgba(0,0,0,0.35);
+  display: block;
+}
+
+.deckShadow {
+  position: absolute;
+  inset: 0;
+  border-radius: 14px;
+  border: 1px solid rgba(255,255,255,0.12);
+  transform: translate(6px, 6px);
+  opacity: 0.25;
+  pointer-events: none;
+}
+.deckShadow2 { transform: translate(6px, 6px); }
+.deckShadow3 { transform: translate(10px, 10px); opacity: 0.18; }
+
         .panel {
           background: linear-gradient(180deg, #2a0a3f 0%, #2a0a3f 55%, #1d0730 100%);
           padding: 48px 16px 64px;
@@ -266,6 +417,11 @@ export default function TarotThreeCardDraw() {
           overflow: hidden;
           box-shadow: 0 20px 50px rgba(0,0,0,0.35);
           transform: translateZ(0);
+          transition: transform 220ms ease;
+        }
+
+        .cardFrame:hover {
+          transform: translateY(-2px);
         }
 
         .cardImg {
@@ -275,11 +431,171 @@ export default function TarotThreeCardDraw() {
           display: block;
         }
 
-        .meaning {
-          min-height: 32px;
+        .slotLabel {
           margin-top: 14px;
-          font-size: 16px;
+          font-size: 14px;
+          opacity: 0.75;
+          letter-spacing: 0.06em;
+          text-transform: uppercase;
+        }
+
+        .meaningTitle {
+          min-height: 24px;
+          margin-top: 8px;
+          font-size: 18px;
+          font-weight: 700;
+          opacity: 0.98;
+        }
+
+        .meaningText {
+          margin-top: 10px;
+          font-size: 14px;
+          line-height: 1.6;
+          opacity: 0.92;
+          max-width: 260px;
+        }
+
+        .combined {
+          margin-top: 44px;
+          padding: 22px 18px;
+          border: 1px solid rgba(255,255,255,0.14);
+          background: rgba(255,255,255,0.06);
+          border-radius: 16px;
+          text-align: center;
+        }
+
+        .combinedTitle {
+          margin: 0 0 10px;
+          font-size: 22px;
+          font-weight: 800;
+        }
+
+        .combinedText {
+          margin: 0;
+          font-size: 15px;
+          line-height: 1.7;
           opacity: 0.95;
+          max-width: 900px;
+          margin-left: auto;
+          margin-right: auto;
+        }
+
+        .deepRow {
+          margin-top: 16px;
+          display: grid;
+          place-items: center;
+          gap: 10px;
+        }
+
+        .btnSecondary {
+          background: rgba(255,255,255,0.08);
+          border: 1px solid rgba(255,255,255,0.18);
+          color: #fff;
+          padding: 10px 14px;
+          border-radius: 10px;
+          font-weight: 700;
+          cursor: pointer;
+        }
+
+        .btnSecondary:hover {
+          background: rgba(255,255,255,0.12);
+        }
+
+        .deepHint {
+          font-size: 13px;
+          opacity: 0.75;
+          max-width: 760px;
+          line-height: 1.5;
+        }
+
+        .deep {
+          margin-top: 22px;
+          padding: 22px 18px;
+          border: 1px solid rgba(255,255,255,0.14);
+          background: rgba(0,0,0,0.12);
+          border-radius: 16px;
+          text-align: left;
+        }
+
+        .deepTitle {
+          margin: 0 0 12px;
+          font-size: 20px;
+          font-weight: 800;
+          text-align: center;
+        }
+
+        .deepCards {
+          display: grid;
+          gap: 14px;
+          margin: 12px 0 18px;
+        }
+
+        .deepCard {
+          border: 1px solid rgba(255,255,255,0.14);
+          background: rgba(255,255,255,0.06);
+          border-radius: 14px;
+          padding: 14px;
+        }
+
+        .deepCardHead {
+          display: flex;
+          gap: 10px;
+          align-items: baseline;
+          margin-bottom: 8px;
+        }
+
+        .deepSlot {
+          font-size: 12px;
+          opacity: 0.7;
+          letter-spacing: 0.08em;
+          text-transform: uppercase;
+        }
+
+        .deepName {
+          font-weight: 800;
+          font-size: 15px;
+        }
+
+        .deepText {
+          margin: 0;
+          font-size: 14px;
+          line-height: 1.7;
+          opacity: 0.95;
+        }
+
+        .paywallBox {
+          margin-top: 14px;
+          display: grid;
+          place-items: center;
+          gap: 12px;
+        }
+
+        .paywallBullets {
+          display: grid;
+          gap: 6px;
+          padding: 14px;
+          border-radius: 14px;
+          width: 100%;
+          max-width: 520px;
+          border: 1px solid rgba(255,255,255,0.16);
+          background: rgba(255,255,255,0.06);
+          text-align: left;
+          font-size: 14px;
+          opacity: 0.95;
+        }
+
+        .btnPay {
+          background: rgba(255,255,255,0.92);
+          border: 0;
+          color: #1d0730;
+          padding: 10px 16px;
+          border-radius: 10px;
+          font-weight: 900;
+          cursor: pointer;
+        }
+
+        .btnPay:hover {
+          background: rgba(255,255,255,1);
         }
 
         @media (max-width: 980px) {
@@ -295,3 +611,11 @@ export default function TarotThreeCardDraw() {
     </section>
   );
 }
+
+
+
+
+
+
+
+
