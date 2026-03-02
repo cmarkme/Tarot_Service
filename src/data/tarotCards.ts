@@ -77,7 +77,7 @@ export const ALL_CARDS = [
   { id: "Swords13", name: "Queen of Swords", src: "/tarot/Swords13.png" },
   { id: "Swords14", name: "King of Swords", src: "/tarot/Swords14.png" },
 
-  // ───────────── Wands ─────────────
+  // ───────────── Wands ───────----------──────
   { id: "Wands01", name: "Ace of Wands", src: "/tarot/Wands01.png" },
   { id: "Wands02", name: "Two of Wands", src: "/tarot/Wands02.png" },
   { id: "Wands03", name: "Three of Wands", src: "/tarot/Wands03.png" },

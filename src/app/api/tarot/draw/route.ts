@@ -1,14 +1,20 @@
 import { NextResponse } from "next/server";
-import { PrismaClient, Arcana, Suit } from "@prisma/client";
+import { PrismaClient } from "@prisma/client";
 import { PrismaPg } from "@prisma/adapter-pg";
-import "dotenv/config";
+
+export const runtime = "nodejs"; // uses Prisma adapter
+
+const DATABASE_URL = process.env.DATABASE_URL;
 
 // Prisma (same adapter pattern as seed)
-const prisma = new PrismaClient({
-  adapter: new PrismaPg({
-    connectionString: process.env.DATABASE_URL!,
-  }),
-});
+const prisma = DATABASE_URL
+  ? new PrismaClient({
+      adapter: new PrismaPg({
+        connectionString: DATABASE_URL,
+      }),
+    })
+  : null;
+
 
 // deterministic RNG helpers
 function hash(str: string) {
@@ -34,6 +40,13 @@ function todayISO() {
 }
 
 export async function GET(req: Request) {
+  if (!DATABASE_URL || !prisma) {
+    return NextResponse.json(
+      { error: "Server is missing DATABASE_URL." },
+      { status: 500 }
+    );
+  }
+
   const url = new URL(req.url);
 
   const mode = url.searchParams.get("mode") ?? "daily"; // daily | random
@@ -50,6 +63,7 @@ export async function GET(req: Request) {
       { status: 400 }
     );
   }
+
 
   const seedString =
     mode === "daily"

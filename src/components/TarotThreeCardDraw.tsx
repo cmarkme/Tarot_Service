@@ -6,13 +6,11 @@ import { ALL_CARDS, type TarotCard } from "@/data/tarotCards";
 import { TAROT_MEANINGS } from "@/data/tarotMeanings";
 import { animated, to as springTo, useSpring, useSprings } from "@react-spring/web";
 
-const deckX = 50;        // origin at center
-const deckY = -100;      // slightly up looks nicer
-const dealY = 0;        // final Y (relative to deck origin)
-const dealX = [-30, 5, 50];  // past, present, future
+const deckX = 50; // origin at center
+const deckY = -100; // slightly up looks nicer
+const dealY = 0; // final Y (relative to deck origin)
+const dealX = [-30, 5, 50]; // past, present, future
 const dealRot = [-8, -2, 5];
-
-
 
 type Phase = "idle" | "revealing";
 
@@ -23,6 +21,8 @@ const SLOT_LABELS: { label: string; key: SlotKey }[] = [
   { label: "Future", key: "future" },
 ];
 
+type ChatMsg = { role: "user" | "assistant"; content: string };
+
 function pick3Unique(cards: TarotCard[]) {
   const copy = [...cards];
   for (let i = copy.length - 1; i > 0; i--) {
@@ -32,31 +32,88 @@ function pick3Unique(cards: TarotCard[]) {
   return copy.slice(0, 3);
 }
 
+function randomOrientation3(): [boolean, boolean, boolean] {
+  // true = reversed, false = upright
+  return [Math.random() < 0.5, Math.random() < 0.5, Math.random() < 0.5];
+}
+
+function buildPrompt(params: {
+  cards: TarotCard[];
+  orientations: [boolean, boolean, boolean];
+  userQuestion: string;
+  history: ChatMsg[];
+}) {
+  const { cards, orientations, userQuestion, history } = params;
+
+  const lines: string[] = [];
+  lines.push("You are a tarot interpreter. This is a 3-card love reading (Past/Present/Future).");
+  lines.push("");
+
+  lines.push("Spread:");
+  cards.slice(0, 3).forEach((c, idx) => {
+    const slot = SLOT_LABELS[idx];
+    const reversed = orientations[idx];
+    const m = TAROT_MEANINGS[c.id];
+
+    const slotMeaning = m?.[slot.key] ?? "";
+    const upright = m?.upright ?? "";
+    const rev = m?.reversed ?? "";
+
+    lines.push(
+      `${slot.label}: ${c.id}-${c.name} (${reversed ? "reversed" : "upright"})`
+    );
+    if (slotMeaning) lines.push(`- Position meaning: ${slotMeaning}`);
+    if (!reversed && upright) lines.push(`- Card meaning (upright): ${upright}`);
+    if (reversed && rev) lines.push(`- Card meaning (reversed): ${rev}`);
+    lines.push("");
+  });
+
+  if (history.length) {
+    lines.push("Conversation so far:");
+    history.slice(-6).forEach((msg) => {
+      lines.push(`${msg.role.toUpperCase()}: ${msg.content}`);
+    });
+    lines.push("");
+  }
+
+  lines.push(`User question: ${userQuestion}`);
+  lines.push(
+    "Respond with a helpful, practical interpretation that references all three positions and gives clear advice."
+  );
+
+  return lines.join("\n").trim();
+}
 
 export default function TarotThreeCardDraw() {
   const [phase, setPhase] = useState<Phase>("idle");
   const [drawn, setDrawn] = useState<TarotCard[]>(() => pick3Unique(ALL_CARDS));
   const [revealed, setRevealed] = useState<[boolean, boolean, boolean]>([false, false, false]);
+  const [orientations, setOrientations] = useState<[boolean, boolean, boolean]>(() => randomOrientation3());
 
   const [deckSpring, deckApi] = useSpring(() => ({
-  from: { rot: 0, scale: 1 },
-  config: { tension: 260, friction: 18 },
-}));
+    from: { rot: 0, scale: 1 },
+    config: { tension: 260, friction: 18 },
+  }));
 
-const [cardSprings, cardApi] = useSprings(3, (i) => ({
-  // ✅ rest state = in spread position (so clicking doesn't move them)
-  x: dealX[i],
-  y: dealY,
-  rot: dealRot[i],
-  scale: 1,
-  opacity: 1,
-  config: { tension: 5000, friction: 402 },
-}));
-
+  const [cardSprings, cardApi] = useSprings(3, (i) => ({
+    // rest state = in spread position (so clicking doesn't move them)
+    x: dealX[i],
+    y: dealY,
+    rot: dealRot[i],
+    scale: 1,
+    opacity: 1,
+    config: { tension: 5000, friction: 402 },
+  }));
 
   // Monetisation placeholder for now (later: from auth/stripe)
   const isSubscribed = false;
   const [showDeep, setShowDeep] = useState(false);
+
+  // Chat state
+  const [chatInput, setChatInput] = useState("");
+  const [chatMessages, setChatMessages] = useState<ChatMsg[]>([]);
+  const [chatLoading, setChatLoading] = useState(false);
+  const [chatError, setChatError] = useState("");
 
   const backSrc = "/tarot/back.png";
 
@@ -64,59 +121,62 @@ const [cardSprings, cardApi] = useSprings(3, (i) => ({
   const allRevealed = revealed.every(Boolean);
 
   const onShuffle = async () => {
-  setDrawn(pick3Unique(ALL_CARDS));
-  setRevealed([false, false, false]);
-  setShowDeep(false);
-  setPhase("idle");
+    setDrawn(pick3Unique(ALL_CARDS));
+    setOrientations(randomOrientation3());
+    setRevealed([false, false, false]);
+    setShowDeep(false);
+    setPhase("idle");
 
-  // Reset card positions to deck origin
-  cardApi.start(() => ({
-  x: deckX,
-  y: 220,
-  rot: 0,
-  scale: 0.98,
-  opacity: 0,
-  immediate: false,
-}));
+    // Reset chat
+    setChatInput("");
+    setChatMessages([]);
+    setChatLoading(false);
+    setChatError("");
 
+    // Reset card positions to deck origin
+    cardApi.start(() => ({
+      x: deckX,
+      y: 220,
+      rot: 0,
+      scale: 0.98,
+      opacity: 0,
+      immediate: false,
+    }));
 
-  // Deck shuffle wobble (feels like shuffling)
-  await deckApi.start({
-    to: async (next) => {
-      for (let k = 0; k < 10; k++) {
+    // Deck shuffle wobble
+    await deckApi.start({
+      to: async (next) => {
+        for (let k = 0; k < 10; k++) {
+          await next({
+            rot: (Math.random() - 0.5) * 10,
+            scale: 1 + Math.random() * 0.02,
+          });
+        }
+        await next({ rot: 0, scale: 1 });
+      },
+    });
+
+    // Deal cards one-by-one from deck to slots
+    await cardApi.start((i) => ({
+      to: async (next) => {
         await next({
-          rot: (Math.random() - 0.5) * 10,
-          scale: 1 + Math.random() * 0.02,
+          opacity: 1,
+          x: deckX,
+          y: deckY,
+          rot: (Math.random() - 0.5) * 8,
+          scale: 1,
         });
-      }
-      await next({ rot: 0, scale: 1 });
-    },
-  });
 
-  // Deal cards one-by-one from deck to slots
-  await cardApi.start((i) => ({
-    to: async (next) => {
-      // bring card up out of deck
-      await next({
-        opacity: 1,
-        x: deckX,
-        y: deckY,
-        rot: (Math.random() - 0.5) * 8,
-        scale: 1,
-      });
-
-      // little “snap” forward
-      await next({
-        x: dealX[i],
-        y: dealY,
-        rot: dealRot[i],
-        scale: 1,
-        delay: i * 120, // stagger deal
-      });
-    },
-  }));
-};
-
+        await next({
+          x: dealX[i],
+          y: dealY,
+          rot: dealRot[i],
+          scale: 1,
+          delay: i * 120,
+        });
+      },
+    }));
+  };
 
   const revealIndex = (idx: 0 | 1 | 2) => {
     setRevealed((prev) => {
@@ -135,6 +195,56 @@ const [cardSprings, cardApi] = useSprings(3, (i) => ({
     return parts.join(" ");
   }, [allRevealed, cards]);
 
+  const sendChat = async () => {
+    const question = chatInput.trim();
+    if (!question || chatLoading) return;
+
+    setChatError("");
+    setChatLoading(true);
+
+    const nextHistory: ChatMsg[] = [...chatMessages, { role: "user", content: question }];
+    setChatMessages(nextHistory);
+    setChatInput("");
+
+    try {
+      const prompt = buildPrompt({
+        cards,
+        orientations,
+        userQuestion: question,
+        history: nextHistory,
+      });
+
+      const res = await fetch("/api/tarot/chat", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ message: prompt }),
+      });
+
+      const text = await res.text();
+      let reply = text;
+
+      try {
+        const json = JSON.parse(text);
+        reply = json.reply ?? json.message ?? json.output ?? text;
+      } catch {
+        // keep raw text
+      }
+
+      if (!res.ok) {
+        setChatMessages((prev) => [
+          ...prev,
+          { role: "assistant", content: `Error from server (${res.status}): ${reply}` },
+        ]);
+      } else {
+        setChatMessages((prev) => [...prev, { role: "assistant", content: reply }]);
+      }
+    } catch (e: any) {
+      setChatError(e?.message || "Failed to send chat message.");
+    } finally {
+      setChatLoading(false);
+    }
+  };
+
   return (
     <section className="panel">
       <div className="inner">
@@ -149,75 +259,78 @@ const [cardSprings, cardApi] = useSprings(3, (i) => ({
             Shuffle
           </button>
         </div>
-<div className="deckRow">
-  <animated.div
-    className="deck"
-    style={{
-      transform: springTo([deckSpring.rot, deckSpring.scale], (r, s) => `rotate(${r}deg) scale(${s})`),
-    }}
-  >
-    {/* simple stack of backs */}
-    <div className="deckStack">
-      <Image src={backSrc} alt="Deck" width={140} height={240} className="deckImg" />
-      <div className="deckShadow deckShadow2" />
-      <div className="deckShadow deckShadow3" />
-    </div>
-  </animated.div>
-</div>
+
+        <div className="deckRow">
+          <animated.div
+            className="deck"
+            style={{
+              transform: springTo([deckSpring.rot, deckSpring.scale], (r, s) => `rotate(${r}deg) scale(${s})`),
+            }}
+          >
+            <div className="deckStack">
+              <Image src={backSrc} alt="Deck" width={140} height={240} className="deckImg" />
+              <div className="deckShadow deckShadow2" />
+              <div className="deckShadow deckShadow3" />
+            </div>
+          </animated.div>
+        </div>
 
         <div className="grid">
-  {cards.map((card, i) => {
-    const idx = i as 0 | 1 | 2;
-    const isRevealed = revealed[idx];
-    const slot = SLOT_LABELS[idx];
+          {cards.map((card, i) => {
+            const idx = i as 0 | 1 | 2;
+            const isRevealed = revealed[idx];
+            const slot = SLOT_LABELS[idx];
 
-    const meaning = TAROT_MEANINGS[card.id];
-    const slotText = meaning?.[slot.key];
+            const meaning = TAROT_MEANINGS[card.id];
+            const slotText = meaning?.[slot.key];
+            const reversed = orientations[idx];
 
-    return (
-      <div key={card.id} className="col">
-        <div className="copyright">All Images ©Labyrinthos LLC</div>
+            return (
+              <div key={card.id} className="col">
+                <div className="copyright">All Images ©Labyrinthos LLC</div>
 
-        {/* ✅ THIS is the animation wrapper */}
-        <animated.div
-          style={{
-            opacity: cardSprings[idx].opacity,
-            transform: springTo(
-              [cardSprings[idx].x, cardSprings[idx].y, cardSprings[idx].rot, cardSprings[idx].scale],
-              (x, y, r, s) => `translate3d(${x}px, ${y}px, 0) rotate(${r}deg) scale(${s})`
-            ),
-          }}
-        >
-          <button
-            type="button"
-            className="cardBtn"
-            onClick={() => revealIndex(idx)}
-            aria-label={isRevealed ? card.name : "Reveal card"}
-          >
-            <div className={`cardFrame ${isRevealed ? "revealed" : ""}`}>
-              <Image
-                src={isRevealed ? card.src : backSrc}
-                alt={isRevealed ? card.name : "Tarot card back"}
-                width={240}
-                height={410}
-                className="cardImg"
-                priority={i === 0}
-              />
-            </div>
-          </button>
-        </animated.div>
+                <animated.div
+                  style={{
+                    opacity: cardSprings[idx].opacity,
+                    transform: springTo(
+                      [cardSprings[idx].x, cardSprings[idx].y, cardSprings[idx].rot, cardSprings[idx].scale],
+                      (x, y, r, s) => `translate3d(${x}px, ${y}px, 0) rotate(${r}deg) scale(${s})`
+                    ),
+                  }}
+                >
+                  <button
+                    type="button"
+                    className="cardBtn"
+                    onClick={() => revealIndex(idx)}
+                    aria-label={isRevealed ? card.name : "Reveal card"}
+                  >
+                    <div className={`cardFrame ${isRevealed ? "revealed" : ""}`}>
+                      <Image
+                        src={isRevealed ? card.src : backSrc}
+                        alt={isRevealed ? card.name : "Tarot card back"}
+                        width={240}
+                        height={410}
+                        className="cardImg"
+                        priority={i === 0}
+                      />
+                    </div>
+                  </button>
+                </animated.div>
 
-        <div className="slotLabel">{slot.label}</div>
+                <div className="slotLabel">
+                  {slot.label}
+                  {isRevealed ? <span className="orient"> • {reversed ? "Reversed" : "Upright"}</span> : null}
+                </div>
 
-        <div className="meaningTitle">{isRevealed ? card.name : ""}</div>
+                <div className="meaningTitle">{isRevealed ? card.name : ""}</div>
 
-        <div className="meaningText">
-          {isRevealed ? slotText ?? "Meaning not found yet for this card." : ""}
+                <div className="meaningText">
+                  {isRevealed ? slotText ?? "Meaning not found yet for this card." : ""}
+                </div>
+              </div>
+            );
+          })}
         </div>
-      </div>
-    );
-  })}
-</div>
 
         {allRevealed && (
           <section className="combined">
@@ -237,6 +350,49 @@ const [cardSprings, cardApi] = useSprings(3, (i) => ({
                 </div>
               </div>
             )}
+          </section>
+        )}
+
+        {/* ✅ NEW: Chat box (works even if you keep the paywall UI) */}
+        {allRevealed && (
+          <section className="chat">
+            <h2 className="chatTitle">Ask a question about your reading</h2>
+
+            <div className="chatBox" role="log" aria-live="polite">
+              {chatMessages.length === 0 ? (
+                <div className="chatEmpty">
+                  Try: “What does the Future card suggest I should do next?” or “What is the main theme across all three?”
+                </div>
+              ) : (
+                chatMessages.map((m, idx) => (
+                  <div key={idx} className={`chatMsg ${m.role}`}>
+                    <div className="chatRole">{m.role === "user" ? "You" : "Tarot AI"}</div>
+                    <div className="chatText">{m.content}</div>
+                  </div>
+                ))
+              )}
+            </div>
+
+            {chatError ? <div className="chatError">{chatError}</div> : null}
+
+            <div className="chatRow">
+              <input
+                className="chatInput"
+                value={chatInput}
+                onChange={(e) => setChatInput(e.target.value)}
+                placeholder="Ask a question..."
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") sendChat();
+                }}
+              />
+              <button className="chatSend" onClick={sendChat} disabled={chatLoading}>
+                {chatLoading ? "Sending..." : "Send"}
+              </button>
+            </div>
+
+            <div className="chatNote">
+              This sends your 3-card spread (Past/Present/Future + upright/reversed + meanings) to the AI so it can answer accurately.
+            </div>
           </section>
         )}
 
@@ -297,44 +453,44 @@ const [cardSprings, cardApi] = useSprings(3, (i) => ({
 
       <style>{`
         .deckRow {
-  display: grid;
-  place-items: center;
-  margin: 0 0 26px;
-}
+          display: grid;
+          place-items: center;
+          margin: 0 0 26px;
+        }
 
-.deck {
-  width: 160px;
-  height: 260px;
-  position: relative;
-}
+        .deck {
+          width: 160px;
+          height: 260px;
+          position: relative;
+        }
 
-.deckStack {
-  position: relative;
-  width: 140px;
-  height: 240px;
-  margin: 0 auto;
-}
+        .deckStack {
+          position: relative;
+          width: 140px;
+          height: 240px;
+          margin: 0 auto;
+        }
 
-.deckImg {
-  width: 140px;
-  height: 240px;
-  object-fit: cover;
-  border-radius: 14px;
-  box-shadow: 0 18px 50px rgba(0,0,0,0.35);
-  display: block;
-}
+        .deckImg {
+          width: 140px;
+          height: 240px;
+          object-fit: cover;
+          border-radius: 14px;
+          box-shadow: 0 18px 50px rgba(0,0,0,0.35);
+          display: block;
+        }
 
-.deckShadow {
-  position: absolute;
-  inset: 0;
-  border-radius: 14px;
-  border: 1px solid rgba(255,255,255,0.12);
-  transform: translate(6px, 6px);
-  opacity: 0.25;
-  pointer-events: none;
-}
-.deckShadow2 { transform: translate(6px, 6px); }
-.deckShadow3 { transform: translate(10px, 10px); opacity: 0.18; }
+        .deckShadow {
+          position: absolute;
+          inset: 0;
+          border-radius: 14px;
+          border: 1px solid rgba(255,255,255,0.12);
+          transform: translate(6px, 6px);
+          opacity: 0.25;
+          pointer-events: none;
+        }
+        .deckShadow2 { transform: translate(6px, 6px); }
+        .deckShadow3 { transform: translate(10px, 10px); opacity: 0.18; }
 
         .panel {
           background: linear-gradient(180deg, #2a0a3f 0%, #2a0a3f 55%, #1d0730 100%);
@@ -437,6 +593,11 @@ const [cardSprings, cardApi] = useSprings(3, (i) => ({
           opacity: 0.75;
           letter-spacing: 0.06em;
           text-transform: uppercase;
+        }
+
+        .orient {
+          opacity: 0.95;
+          font-weight: 700;
         }
 
         .meaningTitle {
@@ -598,6 +759,119 @@ const [cardSprings, cardApi] = useSprings(3, (i) => ({
           background: rgba(255,255,255,1);
         }
 
+        /* ✅ Chat styling */
+        .chat {
+          margin-top: 22px;
+          padding: 22px 18px;
+          border: 1px solid rgba(255,255,255,0.14);
+          background: rgba(255,255,255,0.05);
+          border-radius: 16px;
+          text-align: left;
+        }
+
+        .chatTitle {
+          margin: 0 0 12px;
+          font-size: 18px;
+          font-weight: 900;
+          text-align: center;
+        }
+
+        .chatBox {
+          border: 1px solid rgba(255,255,255,0.14);
+          background: rgba(0,0,0,0.18);
+          border-radius: 14px;
+          padding: 12px;
+          min-height: 140px;
+          max-height: 320px;
+          overflow: auto;
+        }
+
+        .chatEmpty {
+          opacity: 0.75;
+          font-size: 14px;
+          line-height: 1.6;
+          text-align: center;
+          padding: 10px;
+        }
+
+        .chatMsg {
+          padding: 10px 10px;
+          border-radius: 12px;
+          margin-bottom: 10px;
+          border: 1px solid rgba(255,255,255,0.10);
+        }
+
+        .chatMsg.user {
+          background: rgba(255,255,255,0.06);
+        }
+
+        .chatMsg.assistant {
+          background: rgba(0,0,0,0.22);
+        }
+
+        .chatRole {
+          font-size: 12px;
+          opacity: 0.75;
+          letter-spacing: 0.06em;
+          text-transform: uppercase;
+          margin-bottom: 6px;
+        }
+
+        .chatText {
+          font-size: 14px;
+          line-height: 1.6;
+          white-space: pre-wrap;
+        }
+
+        .chatRow {
+          display: grid;
+          grid-template-columns: 1fr auto;
+          gap: 10px;
+          margin-top: 12px;
+        }
+
+        .chatInput {
+          width: 100%;
+          padding: 10px 12px;
+          border-radius: 10px;
+          border: 1px solid rgba(255,255,255,0.18);
+          background: rgba(0,0,0,0.18);
+          color: #fff;
+          outline: none;
+        }
+
+        .chatSend {
+          padding: 10px 14px;
+          border-radius: 10px;
+          border: 1px solid rgba(255,255,255,0.18);
+          background: rgba(255,255,255,0.10);
+          color: #fff;
+          font-weight: 800;
+          cursor: pointer;
+        }
+
+        .chatSend:disabled {
+          opacity: 0.6;
+          cursor: not-allowed;
+        }
+
+        .chatError {
+          margin-top: 10px;
+          padding: 10px 12px;
+          border-radius: 12px;
+          background: rgba(255, 80, 80, 0.15);
+          border: 1px solid rgba(255, 80, 80, 0.25);
+          font-size: 13px;
+        }
+
+        .chatNote {
+          margin-top: 10px;
+          font-size: 12px;
+          opacity: 0.75;
+          line-height: 1.5;
+          text-align: center;
+        }
+
         @media (max-width: 980px) {
           .title { font-size: 36px; }
           .desc { font-size: 16px; }
@@ -611,11 +885,3 @@ const [cardSprings, cardApi] = useSprings(3, (i) => ({
     </section>
   );
 }
-
-
-
-
-
-
-
-

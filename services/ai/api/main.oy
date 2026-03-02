@@ -1,0 +1,113 @@
+import os
+import time
+from typing import Any, Dict, Optional
+
+from fastapi import FastAPI, Header, HTTPException
+from pydantic import BaseModel, Field
+from llama_cpp import Llama
+
+from .policy import (
+    check_shared_secret,
+    is_out_of_scope,
+    is_future_telling,
+    refusal_message,
+    sanitize_user_text,
+)
+from .prompts import build_system_prompt
+from .tarot_format import build_context_block, post_format_hardening
+
+APP_START_TS = time.time()
+
+MODEL_PATH = os.getenv("MODEL_PATH", "/models/model.gguf")
+N_CTX = int(os.getenv("N_CTX", "2048"))
+N_THREADS = int(os.getenv("N_THREADS", "2"))  # match vCPU
+N_BATCH = int(os.getenv("N_BATCH", "128"))
+MAX_TOKENS = int(os.getenv("MAX_TOKENS", "260"))
+TEMPERATURE = float(os.getenv("TEMPERATURE", "0.2"))
+TOP_P = float(os.getenv("TOP_P", "0.9"))
+
+AI_SHARED_SECRET = os.getenv("AI_SHARED_SECRET", "")
+
+app = FastAPI(title="Tarot AI Service", version="1.0.0")
+
+llm: Optional[Llama] = None
+
+class ChatRequest(BaseModel):
+    message: str = Field(..., max_length=1200)
+    context: Dict[str, Any] = Field(default_factory=dict)  # expects {"cards": {...} or [...]}
+
+class ChatResponse(BaseModel):
+    reply: str
+
+@app.on_event("startup")
+def load_model():
+    global llm
+    if not os.path.exists(MODEL_PATH):
+        raise RuntimeError(f"MODEL_PATH not found: {MODEL_PATH}")
+
+    # CPU-only, stable settings. mmap keeps RAM steadier.
+    llm = Llama(
+        model_path=MODEL_PATH,
+        n_ctx=N_CTX,
+        n_threads=N_THREADS,
+        n_batch=N_BATCH,
+        n_gpu_layers=0,
+        use_mmap=True,
+        use_mlock=False,
+        verbose=False,
+    )
+
+@app.get("/healthz")
+def healthz():
+    return {
+        "ok": True,
+        "uptime_s": int(time.time() - APP_START_TS),
+        "model_loaded": llm is not None,
+    }
+
+@app.post("/chat", response_model=ChatResponse)
+def chat(req: ChatRequest, x_internal_auth: str = Header(default="")):
+    # Simple “service-to-service” auth (since browser never calls this directly)
+    if not check_shared_secret(AI_SHARED_SECRET, x_internal_auth):
+        raise HTTPException(status_code=401, detail="Unauthorized")
+
+    user_msg = sanitize_user_text(req.message)
+
+    # Hard refusal at the service layer too (defense-in-depth)
+    if is_out_of_scope(user_msg) or is_future_telling(user_msg):
+        return ChatResponse(reply=refusal_message())
+
+    cards_ctx = req.context.get("cards", None)
+    if not cards_ctx:
+        return ChatResponse(
+            reply="Tell me which tarot card you want (example: “What does The Fool mean upright?”). "
+                  "I can only explain tarot card meanings from the provided dataset."
+        )
+
+    system = build_system_prompt()
+    context_block = build_context_block(cards_ctx)
+
+    prompt = f"""<|system|>
+{system}
+
+DATASET (only source of truth):
+{context_block}
+<|user|>
+{user_msg}
+<|assistant|>
+"""
+
+    if llm is None:
+        raise HTTPException(status_code=503, detail="Model not loaded")
+
+    out = llm(
+        prompt,
+        max_tokens=MAX_TOKENS,
+        temperature=TEMPERATURE,
+        top_p=TOP_P,
+        stop=["<|user|>", "<|system|>"],
+    )
+
+    text = out["choices"][0]["text"].strip()
+    text = post_format_hardening(text)
+    return ChatResponse(reply=text)
