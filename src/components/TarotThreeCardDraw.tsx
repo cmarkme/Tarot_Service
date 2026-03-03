@@ -21,7 +21,12 @@ const SLOT_LABELS: { label: string; key: SlotKey }[] = [
   { label: "Future", key: "future" },
 ];
 
-type ChatMsg = { role: "user" | "assistant"; content: string };
+type ChatMsg = {
+  id: string;
+  role: "user" | "assistant";
+  content: string;
+  status?: "pending" | "done" | "error";
+};
 
 function pick3Unique(cards: TarotCard[]) {
   const copy = [...cards];
@@ -196,54 +201,77 @@ export default function TarotThreeCardDraw() {
   }, [allRevealed, cards]);
 
   const sendChat = async () => {
-    const question = chatInput.trim();
-    if (!question || chatLoading) return;
+  const question = chatInput.trim();
+  if (!question || chatLoading) return;
 
-    setChatError("");
-    setChatLoading(true);
+  setChatError("");
+  setChatLoading(true);
 
-    const nextHistory: ChatMsg[] = [...chatMessages, { role: "user", content: question }];
-    setChatMessages(nextHistory);
-    setChatInput("");
+  const userMsg: ChatMsg = {
+    id: crypto.randomUUID(),
+    role: "user",
+    content: question,
+    status: "done",
+  };
+
+  const pendingId = crypto.randomUUID();
+  const pendingBot: ChatMsg = {
+    id: pendingId,
+    role: "assistant",
+    content: "",           // empty because we'll render dots
+    status: "pending",
+  };
+
+  const nextHistory = [...chatMessages, userMsg];
+  setChatMessages([...nextHistory, pendingBot]);
+  setChatInput("");
+
+  try {
+    const prompt = buildPrompt({
+      cards,
+      orientations,
+      userQuestion: question,
+      history: nextHistory,
+    });
+
+    const res = await fetch("/api/tarot/chat", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ message: prompt }),
+    });
+
+    const text = await res.text();
+    let reply = text;
 
     try {
-      const prompt = buildPrompt({
-        cards,
-        orientations,
-        userQuestion: question,
-        history: nextHistory,
-      });
+      const json = JSON.parse(text);
+      reply = json.reply ?? json.message ?? json.output ?? text;
+    } catch {}
 
-      const res = await fetch("/api/tarot/chat", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ message: prompt }),
-      });
-
-      const text = await res.text();
-      let reply = text;
-
-      try {
-        const json = JSON.parse(text);
-        reply = json.reply ?? json.message ?? json.output ?? text;
-      } catch {
-        // keep raw text
-      }
-
-      if (!res.ok) {
-        setChatMessages((prev) => [
-          ...prev,
-          { role: "assistant", content: `Error from server (${res.status}): ${reply}` },
-        ]);
-      } else {
-        setChatMessages((prev) => [...prev, { role: "assistant", content: reply }]);
-      }
-    } catch (e: any) {
-      setChatError(e?.message || "Failed to send chat message.");
-    } finally {
-      setChatLoading(false);
-    }
-  };
+    // Replace the pending bubble with the real reply
+    setChatMessages((prev) =>
+      prev.map((m) =>
+        m.id === pendingId
+          ? {
+              ...m,
+              content: res.ok ? reply : `Error from server (${res.status}): ${reply}`,
+              status: res.ok ? "done" : "error",
+            }
+          : m
+      )
+    );
+  } catch (e: any) {
+    setChatMessages((prev) =>
+      prev.map((m) =>
+        m.status === "pending"
+          ? { ...m, content: e?.message || "Failed to send chat message.", status: "error" }
+          : m
+      )
+    );
+  } finally {
+    setChatLoading(false);
+  }
+};
 
   return (
     <section className="panel">
@@ -367,7 +395,18 @@ export default function TarotThreeCardDraw() {
                 chatMessages.map((m, idx) => (
                   <div key={idx} className={`chatMsg ${m.role}`}>
                     <div className="chatRole">{m.role === "user" ? "You" : "Tarot AI"}</div>
-                    <div className="chatText">{m.content}</div>
+                    <div className="chatText">
+  {m.status === "pending" ? (
+    <span className="typing" aria-label="Tarot AI is typing">
+      <span className="dot" />
+      <span className="dot" />
+      <span className="dot" />
+      <span className="typingLabel">Tarot dealer is typing…</span>
+    </span>
+  ) : (
+    m.content
+  )}
+</div>
                   </div>
                 ))
               )}
@@ -386,7 +425,7 @@ export default function TarotThreeCardDraw() {
                 }}
               />
               <button className="chatSend" onClick={sendChat} disabled={chatLoading}>
-                {chatLoading ? "Sending..." : "Send"}
+                {chatLoading && <div className="thinkingBar">Shuffling the deck… interpreting symbols…</div>}
               </button>
             </div>
 
@@ -452,6 +491,36 @@ export default function TarotThreeCardDraw() {
       </div>
 
       <style>{`
+.typing {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: rgba(255,255,255,0.75);
+  animation: bounce 1.1s infinite;
+  display: inline-block;
+}
+
+.dot:nth-child(1) { animation-delay: 0ms; }
+.dot:nth-child(2) { animation-delay: 150ms; }
+.dot:nth-child(3) { animation-delay: 300ms; }
+
+.typingLabel {
+  font-size: 12px;
+  opacity: 0.75;
+  margin-left: 6px;
+}
+
+@keyframes bounce {
+  0%, 80%, 100% { transform: translateY(0); opacity: 0.55; }
+  40% { transform: translateY(-4px); opacity: 1; }
+}
+
         .deckRow {
           display: grid;
           place-items: center;
