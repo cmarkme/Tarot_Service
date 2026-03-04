@@ -120,7 +120,11 @@ export default function TarotThreeCardDraw() {
   const [chatLoading, setChatLoading] = useState(false);
   const [chatError, setChatError] = useState("");
 
-  const backSrc = "/tarot/stack.png";
+  const backSrc = "/tarot/back.png";
+  const deckSrc = "/tarot/stack.png";
+  
+
+
 
   const cards = useMemo(() => drawn.slice(0, 3), [drawn]);
   const allRevealed = revealed.every(Boolean);
@@ -296,10 +300,15 @@ export default function TarotThreeCardDraw() {
             }}
           >
             <div className="deckStack">
-              <Image src={backSrc} alt="Deck" width={140} height={240} className="deckImg" />
-              <div className="deckShadow deckShadow2" />
-              <div className="deckShadow deckShadow3" />
-            </div>
+            <Image
+              src={deckSrc}
+              alt="Deck"
+              width={240}
+              height={280}
+              className="deckStackImg"
+              priority
+            />
+          </div>
           </animated.div>
         </div>
 
