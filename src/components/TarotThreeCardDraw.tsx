@@ -425,7 +425,7 @@ export default function TarotThreeCardDraw() {
                 }}
               />
               <button className="chatSend" onClick={sendChat} disabled={chatLoading}>
-                {chatLoading && <div className="thinkingBar">Shuffling the deck… interpreting symbols…</div>}
+                {chatLoading ? <div className="thinkingBar">Shuffling the deck… interpreting symbols…</div> : "Send"}
               </button>
             </div>
 
