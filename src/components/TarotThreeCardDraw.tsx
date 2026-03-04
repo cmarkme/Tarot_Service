@@ -120,7 +120,7 @@ export default function TarotThreeCardDraw() {
   const [chatLoading, setChatLoading] = useState(false);
   const [chatError, setChatError] = useState("");
 
-  const backSrc = "/tarot/back.png";
+  const backSrc = "/tarot/stack.png";
 
   const cards = useMemo(() => drawn.slice(0, 3), [drawn]);
   const allRevealed = revealed.every(Boolean);
@@ -276,7 +276,7 @@ export default function TarotThreeCardDraw() {
   return (
     <section className="panel">
       <div className="inner">
-        <h1 className="title">Get Your Personal Free Love Tarot Reading</h1>
+        <h1 className="title">TAROT Card Counsel: Let the Tarot be your guide under the stars :</h1>
 
         <p className="desc">
           Click each card to reveal it. Meanings appear below each card. Shuffle to draw again.
