@@ -321,9 +321,12 @@ export default function TarotThreeCardDraw() {
                   style={{
                     opacity: cardSprings[idx].opacity,
                     transform: springTo(
-                      [cardSprings[idx].x, cardSprings[idx].y, cardSprings[idx].rot, cardSprings[idx].scale],
-                      (x, y, r, s) => `translate3d(${x}px, ${y}px, 0) rotate(${r}deg) scale(${s})`
-                    ),
+  [cardSprings[idx].x, cardSprings[idx].y, cardSprings[idx].rot, cardSprings[idx].scale],
+  (x, y, r, s) => {
+    const extra = isRevealed && reversed ? 180 : 0; // <- upside-down when reversed
+    return `translate3d(${x}px, ${y}px, 0) rotate(${r + extra}deg) scale(${s})`;
+  }
+),
                   }}
                 >
                   <button
